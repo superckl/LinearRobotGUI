@@ -5,33 +5,59 @@ import java.io.FilenameFilter;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleDoubleProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
+import javafx.css.PseudoClass;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 import jssc.SerialPortList;
 import lab.gilroy.robot.gui.Config.PhotoMode;
 import lab.gilroy.robot.gui.task.IPlantTask;
@@ -53,13 +79,73 @@ public class GuiController extends Application implements ITaskListener{
 	private final List<ImageView> plantGreyImages = new ArrayList<>();
 	private final List<ImageView> plantOutlineImages = new ArrayList<>();
 
+	private static Log log = new Log();
+	public static Logger logger = new Logger(GuiController.log, "");
+
+
 	public static void main(final String ... args){
 		Application.launch(args);
 	}
 
 	@Override
 	public void start(final Stage stage) throws Exception {
+		//Construct Log
+		final LogView logView = new LogView(GuiController.logger);
+		logView.setPrefWidth(400);
+
+		final ChoiceBox<Level> filterLevel = new ChoiceBox<>(
+				FXCollections.observableArrayList(
+						Level.values()
+						)
+				);
+		filterLevel.getSelectionModel().select(Level.DEBUG);
+		logView.filterLevelProperty().bind(
+				filterLevel.getSelectionModel().selectedItemProperty()
+				);
+
+		final ToggleButton showTimestamp = new ToggleButton("Show Timestamp");
+		logView.showTimeStampProperty().bind(showTimestamp.selectedProperty());
+
+		final ToggleButton tail = new ToggleButton("Tail");
+		logView.tailProperty().bind(tail.selectedProperty());
+
+		final ToggleButton pause = new ToggleButton("Pause");
+		logView.pausedProperty().bind(pause.selectedProperty());
+
+		final Slider rate = new Slider(0.1, 60, 60);
+		logView.refreshRateProperty().bind(rate.valueProperty());
+		final Label rateLabel = new Label();
+		rateLabel.textProperty().bind(Bindings.format("Update: %.2f fps", rate.valueProperty()));
+		rateLabel.setStyle("-fx-font-family: monospace;");
+		final VBox rateLayout = new VBox(rate, rateLabel);
+		rateLayout.setAlignment(Pos.CENTER);
+
+		final HBox controls = new HBox(
+				10,
+				filterLevel,
+				showTimestamp,
+				tail,
+				pause,
+				rateLayout
+				);
+		controls.setMinHeight(Region.USE_PREF_SIZE);
+
+		final VBox layout = new VBox(
+				10,
+				controls,
+				logView
+				);
+		VBox.setVgrow(logView, Priority.ALWAYS);
+
+		final Scene logScene = new Scene(layout);
+		logScene.getStylesheets().add(
+				this.getClass().getResource("/log-view.css").toExternalForm()
+				);
+		final Stage logStage = new Stage();
+		logStage.setScene(logScene);
+		logStage.show();
 		//Construct main GUI
+		GuiController.logger.info("Constructing GUI...");
 		stage.setTitle("Gilroy Lab Linear Robot Controller");
 		this.plantImage = new Image("/plant.png", 100, 100, true, true);
 		this.plantGreyImage = new Image("/plant_grey.png", 100, 100, true, true);
@@ -108,6 +194,7 @@ public class GuiController extends Application implements ITaskListener{
 	}
 
 	private MenuBar constructMenu(){
+		GuiController.logger.debug("Constructing menu...");
 		final MenuBar menu = new MenuBar();
 		final Menu file = new Menu("File");
 		final MenuItem item1 = new MenuItem("Settings");
@@ -130,6 +217,7 @@ public class GuiController extends Application implements ITaskListener{
 	}
 
 	private Stage constructCalculatorGUI(){
+		GuiController.logger.debug("Constructing calc gui...");
 		final Stage calc = new Stage();
 		calc.setTitle("Calculator");
 		calc.getIcons().add(this.plantImage);
@@ -144,6 +232,7 @@ public class GuiController extends Application implements ITaskListener{
 	}
 
 	private Stage constructSettingsGUI(){
+		GuiController.logger.debug("Constructing setting gui...");
 		final Stage settings = new Stage();
 		settings.setTitle("Settings");
 		settings.getIcons().add(this.plantImage);
@@ -202,6 +291,7 @@ public class GuiController extends Application implements ITaskListener{
 	}
 
 	public Stage constructIntervalGUI(){
+		GuiController.logger.debug("Constructing interval gui");
 		final Stage intervalStage = new Stage();
 		intervalStage.getIcons().add(this.plantImage);
 		intervalStage.setTitle("Time Interval Photos");
@@ -262,7 +352,7 @@ public class GuiController extends Application implements ITaskListener{
 				field3.setText(oldValue);
 		});
 		final ObservableList<TimeUnit> options3 = FXCollections.observableArrayList(TimeUnit.SECONDS, TimeUnit.MINUTES, TimeUnit.HOURS, TimeUnit.DAYS);
-		final ComboBox<TimeUnit> comboBox3 = new ComboBox<TimeUnit>(options2);
+		final ComboBox<TimeUnit> comboBox3 = new ComboBox<TimeUnit>(options3);
 		comboBox3.setValue(TimeUnit.MINUTES);
 
 		final Label label4 = new Label("Plant Delay:");
@@ -272,7 +362,7 @@ public class GuiController extends Application implements ITaskListener{
 				field4.setText(oldValue);
 		});
 		final ObservableList<TimeUnit> options4 = FXCollections.observableArrayList(TimeUnit.SECONDS, TimeUnit.MINUTES, TimeUnit.HOURS, TimeUnit.DAYS);
-		final ComboBox<TimeUnit> comboBox4 = new ComboBox<TimeUnit>(options2);
+		final ComboBox<TimeUnit> comboBox4 = new ComboBox<TimeUnit>(options4);
 		comboBox4.setValue(TimeUnit.MINUTES);
 
 		startButton.setOnAction((final ActionEvent e) ->{
@@ -390,4 +480,224 @@ public class GuiController extends Application implements ITaskListener{
 		});
 	}
 
+}
+
+class Log {
+	private static final int MAX_LOG_ENTRIES = 1_000_000;
+
+	private final BlockingDeque<LogRecord> log = new LinkedBlockingDeque<>(Log.MAX_LOG_ENTRIES);
+
+	public void drainTo(final Collection<? super LogRecord> collection) {
+		this.log.drainTo(collection);
+	}
+
+	public void offer(final LogRecord record) {
+		this.log.offer(record);
+	}
+}
+
+class Logger {
+	private final Log log;
+	private final String context;
+
+	public Logger(final Log log, final String context) {
+		this.log = log;
+		this.context = context;
+	}
+
+	public void log(final LogRecord record) {
+		this.log.offer(record);
+	}
+
+	public void debug(final String msg) {
+		this.log(new LogRecord(Level.DEBUG, this.context, msg));
+	}
+
+	public void info(final String msg) {
+		this.log(new LogRecord(Level.INFO, this.context, msg));
+	}
+
+	public void warn(final String msg) {
+		this.log(new LogRecord(Level.WARN, this.context, msg));
+	}
+
+	public void error(final String msg) {
+		this.log(new LogRecord(Level.ERROR, this.context, msg));
+	}
+
+	public Log getLog() {
+		return this.log;
+	}
+}
+
+enum Level { DEBUG, INFO, WARN, ERROR }
+
+class LogRecord {
+	private final Date   timestamp;
+	private final Level  level;
+	private final String context;
+	private final String message;
+
+	public LogRecord(final Level level, final String context, final String message) {
+		this.timestamp = new Date();
+		this.level     = level;
+		this.context   = context;
+		this.message   = message;
+	}
+
+	public Date getTimestamp() {
+		return this.timestamp;
+	}
+
+	public Level getLevel() {
+		return this.level;
+	}
+
+	public String getContext() {
+		return this.context;
+	}
+
+	public String getMessage() {
+		return this.message;
+	}
+}
+
+class LogView extends ListView<LogRecord> {
+	private static final int MAX_ENTRIES = 10_000;
+
+	private final static PseudoClass debug = PseudoClass.getPseudoClass("debug");
+	private final static PseudoClass info  = PseudoClass.getPseudoClass("info");
+	private final static PseudoClass warn  = PseudoClass.getPseudoClass("warn");
+	private final static PseudoClass error = PseudoClass.getPseudoClass("error");
+
+	private final static SimpleDateFormat timestampFormatter = new SimpleDateFormat("HH:mm:ss.SSS");
+
+	private final BooleanProperty       showTimestamp = new SimpleBooleanProperty(false);
+	private final ObjectProperty<Level> filterLevel   = new SimpleObjectProperty<>(null);
+	private final BooleanProperty       tail          = new SimpleBooleanProperty(false);
+	private final BooleanProperty       paused        = new SimpleBooleanProperty(false);
+	private final DoubleProperty        refreshRate   = new SimpleDoubleProperty(60);
+
+	private final ObservableList<LogRecord> logItems = FXCollections.observableArrayList();
+
+	public BooleanProperty showTimeStampProperty() {
+		return this.showTimestamp;
+	}
+
+	public ObjectProperty<Level> filterLevelProperty() {
+		return this.filterLevel;
+	}
+
+	public BooleanProperty tailProperty() {
+		return this.tail;
+	}
+
+	public BooleanProperty pausedProperty() {
+		return this.paused;
+	}
+
+	public DoubleProperty refreshRateProperty() {
+		return this.refreshRate;
+	}
+
+	public LogView(final Logger logger) {
+		this.getStyleClass().add("log-view");
+
+		final Timeline logTransfer = new Timeline(
+				new KeyFrame(
+						Duration.seconds(1),
+						event -> {
+							logger.getLog().drainTo(this.logItems);
+
+							if (this.logItems.size() > LogView.MAX_ENTRIES)
+								this.logItems.remove(0, this.logItems.size() - LogView.MAX_ENTRIES);
+
+							if (this.tail.get())
+								this.scrollTo(this.logItems.size());
+						}
+						)
+				);
+		logTransfer.setCycleCount(Animation.INDEFINITE);
+		logTransfer.rateProperty().bind(this.refreshRateProperty());
+
+		this.pausedProperty().addListener((observable, oldValue, newValue) -> {
+			if (newValue && logTransfer.getStatus() == Animation.Status.RUNNING)
+				logTransfer.pause();
+
+			if (!newValue && logTransfer.getStatus() == Animation.Status.PAUSED && this.getParent() != null)
+				logTransfer.play();
+		});
+
+		this.parentProperty().addListener((observable, oldValue, newValue) -> {
+			if (newValue == null)
+				logTransfer.pause();
+			else if (!this.paused.get())
+				logTransfer.play();
+		});
+
+		this.filterLevel.addListener((observable, oldValue, newValue) -> {
+			this.setItems(
+					new FilteredList<LogRecord>(
+							this.logItems,
+							logRecord ->
+							logRecord.getLevel().ordinal() >=
+							this.filterLevel.get().ordinal()
+							)
+					);
+		});
+		this.filterLevel.set(Level.DEBUG);
+
+		this.setCellFactory(param -> new ListCell<LogRecord>() {
+			{
+				LogView.this.showTimestamp.addListener(observable -> this.updateItem(this.getItem(), this.isEmpty()));
+			}
+
+			@Override
+			protected void updateItem(final LogRecord item, final boolean empty) {
+				super.updateItem(item, empty);
+
+				this.pseudoClassStateChanged(LogView.debug, false);
+				this.pseudoClassStateChanged(LogView.info, false);
+				this.pseudoClassStateChanged(LogView.warn, false);
+				this.pseudoClassStateChanged(LogView.error, false);
+
+				if (item == null || empty) {
+					this.setText(null);
+					return;
+				}
+
+				final String context =
+						(item.getContext() == null)
+						? ""
+								: item.getContext() + " ";
+
+				if (LogView.this.showTimestamp.get()) {
+					final String timestamp =
+							(item.getTimestamp() == null)
+							? ""
+									: LogView.timestampFormatter.format(item.getTimestamp()) + " ";
+					this.setText(timestamp + context + item.getMessage());
+				} else
+					this.setText(context + item.getMessage());
+
+				switch (item.getLevel()) {
+				case DEBUG:
+					this.pseudoClassStateChanged(LogView.debug, true);
+					break;
+
+				case INFO:
+					this.pseudoClassStateChanged(LogView.info, true);
+					break;
+
+				case WARN:
+					this.pseudoClassStateChanged(LogView.warn, true);
+					break;
+
+				case ERROR:
+					this.pseudoClassStateChanged(LogView.error, true);
+					break;
+				}
+			}
+		});
+	}
 }

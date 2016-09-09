@@ -72,7 +72,7 @@ public class TaskIntervalPhotos extends IPlantTask{
 				try {
 					this.updateStatus("Waiting to take picture...");
 					synchronized (this.dummy) {
-						long moveTime = (System.currentTimeMillis()-this.startMoveTime);
+						final long moveTime = (System.currentTimeMillis()-this.startMoveTime);
 						if(this.delayBetween - moveTime > 0)
 							this.dummy.wait(this.delayBetween - moveTime);
 					}
