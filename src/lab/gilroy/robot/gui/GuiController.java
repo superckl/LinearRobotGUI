@@ -390,7 +390,7 @@ public class GuiController extends Application implements ITaskListener{
 				return; //TODO should disable button;
 			final File selectedDirectory = new DirectoryChooser().showDialog(intervalStage);
 			if(selectedDirectory != null){
-				final File[] files = selectedDirectory.listFiles((FilenameFilter) (dir, name) -> name.endsWith(".raw"));
+				final File[] files = selectedDirectory.listFiles((FilenameFilter) (dir, name) -> name.endsWith(".CR2"));
 				final int numPlants = Integer.parseInt(field1.getText());
 				for(int i = 1; i-1 < numPlants; i++){
 					final File dir = new File(selectedDirectory, "plant"+i+"/");
@@ -446,6 +446,7 @@ public class GuiController extends Application implements ITaskListener{
 		mainGrid.add(comboBox4, 2, 5);
 		mainGrid.add(startButton, 0, 6);
 		mainGrid.add(estimateButton, 1, 6);
+		mainGrid.add(sortButton, 2, 6);
 
 		((VBox) intervalStage.getScene().getRoot()).getChildren().addAll(this.constructMenu(), imageGrid, mainGrid, this.statusLabel/*, sortButton*/);
 		return intervalStage;
